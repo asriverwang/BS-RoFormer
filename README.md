@@ -37,9 +37,9 @@ The frequency axis is divided into a fixed set of **subspectra** (coarse groups)
 | 384 – 767        | 8     |
 | 768 – 1023       | 2     |
 
-### MelRoFormer — mel-scale bands
+### MelRoFormer — overlapping mel-scale bands
 
-Instead of hand-crafted subspectra, `librosa`'s mel filterbank is used to derive band boundaries automatically. Each mel band maps to a contiguous range of FFT bins, giving perceptually motivated frequency resolution (finer at low frequencies, coarser at high).
+Instead of hand-crafted subspectra, `librosa`'s mel filterbank is used to derive band boundaries automatically. Each mel band maps to a contiguous, **overlapping** range of FFT bins — adjacent bands share frequency bins, giving perceptually motivated resolution (finer at low frequencies, coarser at high). In `MelBandSplit`, each band reads its full overlapping window; in `MelBandMask`, each band's estimated mask is scattered into its slice with `+=`, so overlapping bins accumulate contributions from multiple bands.
 
 ### Shared transformer core (`roformer.py`)
 

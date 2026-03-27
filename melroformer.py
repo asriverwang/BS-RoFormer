@@ -11,22 +11,14 @@ from roformer import RMSNorm, RoFormerBlock
 
 
 def _mel_band_ranges(n_fft, num_bands):
-    """Compute non-overlapping frequency bin ranges for each mel band.
+    """Compute overlapping frequency bin ranges for each mel band.
 
     Returns list of [lo_bin, hi_bin] pairs mapping mel bands to FFT bins.
     """
     filterbank = librosa.filters.mel(sr=44100, n_fft=n_fft, n_mels=num_bands)
     band_bins = [list(np.where(row > 0)[0]) for row in filterbank]
     band_bins[0] = [0] + band_bins[0]  # include DC bin
-    non_overlapping = [
-        band_bins[0][: len(band_bins[0]) // 2],
-        band_bins[0][len(band_bins[0]) // 2 :],
-    ]
-    for i in range(1, num_bands):
-        non_overlapping.append(
-            [b for b in band_bins[i] if b not in band_bins[i - 1]]
-        )
-    return [[bins[0], bins[-1]] for bins in non_overlapping]
+    return [[bins[0], bins[-1]] for bins in band_bins]
 
 
 class BandProjection(nn.Module):
