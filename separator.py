@@ -58,13 +58,15 @@ def load_model(backbone, pt_path, device):
 
 
 class Separator:
-    def __init__(self, model, segment_samples, hop_samples, batch_size, device):
+    def __init__(self, model, segment_samples, hop_samples, batch_size, device,
+                 blend_mode="crossfade"):
         self.model = model.eval()
         self.segment_samples = segment_samples
         self.hop_samples = hop_samples
         self.batch_size = batch_size
         self.device = device
         self.overlap = segment_samples - hop_samples
+        self.blend_mode = blend_mode
 
     def separate(self, audio):
         """audio: (channels, samples) -> (channels, samples)."""
@@ -90,23 +92,38 @@ class Separator:
         return np.array(segments)
 
     def _reassemble(self, segments):
-        """Reassemble segments using overlap-add with averaging."""
+        """Reassemble segments using overlap-add with averaging or crossfade."""
         n_segs, n_ch, seg_len = segments.shape
         buf = self.overlap // 2
 
         if n_segs == 1:
             return segments[0][:, buf : seg_len - buf] if buf > 0 else segments[0]
 
+        overlap_size = self.overlap
         total_len = (n_segs - 1) * self.hop_samples + seg_len
         out = np.zeros((n_ch, total_len))
-        cnt = np.zeros_like(out)
 
-        for i, seg in enumerate(segments):
-            start = i * self.hop_samples
-            out[:, start : start + seg_len] += seg
-            cnt[:, start : start + seg_len] += 1
+        if self.blend_mode == "crossfade":
+            fadein = np.linspace(0, 1, overlap_size)
+            fadeout = 1 - fadein
+            for i, seg in enumerate(segments):
+                if i == 0:
+                    out[:, :seg_len] += seg
+                else:
+                    start = i * self.hop_samples
+                    prev_end = (i - 1) * self.hop_samples + seg_len
+                    out[:, prev_end - overlap_size : prev_end] *= fadeout
+                    seg = seg.copy()
+                    seg[:, :overlap_size] *= fadein
+                    out[:, start : start + seg_len] += seg
+        else:
+            cnt = np.zeros_like(out)
+            for i, seg in enumerate(segments):
+                start = i * self.hop_samples
+                out[:, start : start + seg_len] += seg
+                cnt[:, start : start + seg_len] += 1
+            out /= cnt
 
-        out /= cnt
         return out[:, buf : total_len - buf] if buf > 0 else out
 
     @torch.no_grad()
@@ -135,7 +152,8 @@ def main(args):
     if args.compile:
         print("Compiling transformer stack (first batch will be slow)...")
         model.compile_for_inference()
-    separator = Separator(model, SEGMENT_SAMPLES, hop_samples, args.batch_size, device)
+    separator = Separator(model, SEGMENT_SAMPLES, hop_samples, args.batch_size, device,
+                          blend_mode=args.blend_mode)
 
     target_dir = os.path.join(args.output_audio_folder, "target")
     residu_dir = os.path.join(args.output_audio_folder, "residual")
@@ -185,6 +203,9 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--output_mp3", action="store_true")
     parser.add_argument("--hop_perc", type=float, default=0.5)
+    parser.add_argument("--blend_mode", type=str, default="crossfade",
+                        choices=["crossfade", "average"],
+                        help="Overlap blending method (default: crossfade)")
     parser.add_argument("--compile", action="store_true",
                         help="Compile transformer stack with torch.compile (PyTorch 2+ only)")
     main(parser.parse_args())
